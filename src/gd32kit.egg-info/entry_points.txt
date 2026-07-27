@@ -1,2 +1,0 @@
-[console_scripts]
-gd32kit = gd32kit.cli:main
