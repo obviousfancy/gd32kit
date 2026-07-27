@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "gd32kit"
+version = "0.1.0"
+description = "Toolkit CLI for GD32F527 Makefile+OpenOCD projects (project scaffolding and more)"
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "MIT" }
+authors = [{ name = "Jonathan Mejorado López" }]
+keywords = ["gd32", "gd32f527", "embedded", "arm", "cortex-m33", "scaffolding", "openocd"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Topic :: Software Development :: Embedded Systems",
+    "Topic :: Software Development :: Code Generators",
+]
+dependencies = ["questionary>=2.0"]
+
+[project.scripts]
+gd32kit = "gd32kit.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+gd32kit = ["templates/*"]

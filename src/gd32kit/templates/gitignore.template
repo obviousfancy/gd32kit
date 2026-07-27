@@ -1,0 +1,5 @@
+build/
+out/
+fmc_prog.o
+fmc_prog.elf
+fmc_prog.bin

@@ -1,0 +1,196 @@
+######################################
+# target
+######################################
+TARGET = {{TARGET}}
+
+######################################
+# building variables
+######################################
+# debug build?
+DEBUG = 1
+# optimization
+OPT = -Og
+
+#######################################
+# paths
+#######################################
+# Build paths
+BUILD_DIR = build
+OUT_DIR = out
+
+# Path to the gd32f527xx SDK repo (Firmware/ + CMSIS_6/ submodule).
+# Override per-invocation with `make GD32_SDK_ROOT=/other/path`, or export
+# it once in your shell profile, same idea as PICO_SDK_PATH for the Pico SDK.
+GD32_SDK_ROOT ?= $(HOME)/Documents/obviousfancy/gd32f527xx
+FW_DIR = $(GD32_SDK_ROOT)/Firmware
+CMSIS_DIR = $(FW_DIR)/CMSIS
+CMSIS_6_DIR = $(GD32_SDK_ROOT)/CMSIS_6
+PERIPH_DIR = $(FW_DIR)/GD32F527_standard_peripheral
+
+######################################
+# source
+######################################
+# C sources
+C_SOURCES =  \
+main.c \
+gd32f527_it.c \
+systick.c \
+$(CMSIS_DIR)/GD/GD32F527/Source/system_gd32f527.c \
+$(PERIPH_DIR)/Source/gd32f527_gpio.c \
+$(PERIPH_DIR)/Source/gd32f527_rcu.c \
+$(PERIPH_DIR)/Source/gd32f527_misc.c \
+$(PERIPH_DIR)/Source/gd32f527_syscfg.c{{EXTRA_SOURCES}}
+
+# ASM sources
+ASM_SOURCES =  \
+$(CMSIS_DIR)/GD/GD32F527/Source/GCC/startup_gd32f527.S
+
+#######################################
+# binaries
+#######################################
+PREFIX = arm-none-eabi-
+# The gcc compiler bin path can be either defined in make command via GCC_PATH variable (> make GCC_PATH=xxx)
+# either it can be added to the PATH environment variable.
+ifdef GCC_PATH
+CC = $(GCC_PATH)/$(PREFIX)gcc
+AS = $(GCC_PATH)/$(PREFIX)gcc -x assembler-with-cpp
+CP = $(GCC_PATH)/$(PREFIX)objcopy
+SZ = $(GCC_PATH)/$(PREFIX)size
+else
+CC = $(PREFIX)gcc
+AS = $(PREFIX)gcc -x assembler-with-cpp
+CP = $(PREFIX)objcopy
+SZ = $(PREFIX)size
+endif
+HEX = $(CP) -O ihex
+BIN = $(CP) -O binary -S
+
+#######################################
+# CFLAGS
+#######################################
+# cpu
+CPU = -mcpu=cortex-m33
+
+# fpu
+FPU = -mfpu=fpv5-sp-d16
+
+# float-abi
+FLOAT-ABI = -mfloat-abi=hard
+
+# mcu
+MCU = $(CPU) -mthumb $(FPU) $(FLOAT-ABI)
+
+# macros for gcc
+# AS defines
+AS_DEFS =
+
+# C defines
+C_DEFS =  \
+-DGD32F527 \
+-DUSE_STDPERIPH_DRIVER
+
+# AS includes
+AS_INCLUDES =
+
+# C includes
+C_INCLUDES =  \
+-I. \
+-I$(CMSIS_DIR) \
+-I$(CMSIS_DIR)/GD/GD32F527/Include \
+-I$(CMSIS_6_DIR)/CMSIS/Core/Include \
+-I$(PERIPH_DIR)/Include
+
+# compile gcc flags
+ASFLAGS = $(MCU) $(AS_DEFS) $(AS_INCLUDES) $(OPT) -Wall -fdata-sections -ffunction-sections
+
+CFLAGS = $(MCU) $(C_DEFS) $(C_INCLUDES) $(OPT) -Wall -fdata-sections -ffunction-sections
+
+ifeq ($(DEBUG), 1)
+CFLAGS += -g -gdwarf-2
+endif
+
+# Generate dependency information
+CFLAGS += -MMD -MP -MF"$(@:%.o=%.d)"
+
+#######################################
+# LDFLAGS
+#######################################
+# link script
+LDSCRIPT = gd32f527_flash.ld
+
+# libraries
+LIBS = -lc -lm -lnosys
+LIBDIR =
+LDFLAGS = $(MCU) -specs=nano.specs -T$(LDSCRIPT) $(LIBDIR) $(LIBS) -Wl,-Map=$(BUILD_DIR)/$(TARGET).map,--cref -Wl,--gc-sections
+
+# default action: build all
+all: $(BUILD_DIR)/$(TARGET).elf $(BUILD_DIR)/$(TARGET).hex $(BUILD_DIR)/$(TARGET).bin
+
+#######################################
+# build the application
+#######################################
+# list of objects
+OBJECTS = $(addprefix $(OUT_DIR)/,$(notdir $(C_SOURCES:.c=.o)))
+vpath %.c $(sort $(dir $(C_SOURCES)))
+# list of ASM program objects
+OBJECTS += $(addprefix $(OUT_DIR)/,$(notdir $(ASM_SOURCES:.S=.o)))
+vpath %.S $(sort $(dir $(ASM_SOURCES)))
+
+$(OUT_DIR)/%.o: %.c Makefile | $(OUT_DIR)
+	$(CC) -c $(CFLAGS) -Wa,-a,-ad,-alms=$(OUT_DIR)/$(notdir $(<:.c=.lst)) $< -o $@
+
+$(OUT_DIR)/%.o: %.S Makefile | $(OUT_DIR)
+	$(AS) -c $(CFLAGS) $< -o $@
+
+$(BUILD_DIR)/$(TARGET).elf: $(OBJECTS) Makefile | $(BUILD_DIR)
+	$(CC) $(OBJECTS) $(LDFLAGS) -o $@
+	$(SZ) $@
+
+$(BUILD_DIR)/%.hex: $(BUILD_DIR)/%.elf | $(BUILD_DIR)
+	$(HEX) $< $@
+
+$(BUILD_DIR)/%.bin: $(BUILD_DIR)/%.elf | $(BUILD_DIR)
+	$(BIN) $< $@
+
+$(OUT_DIR):
+	mkdir -p $@
+
+$(BUILD_DIR):
+	mkdir -p $@
+
+#######################################
+# clean up
+#######################################
+clean:
+	-rm -fR $(OUT_DIR) $(BUILD_DIR)
+	-rm -f fmc_prog.o fmc_prog.elf fmc_prog.bin
+
+#######################################
+# flash (OpenOCD, SWD)
+#######################################
+# Neither pyocd's generic "cortex_m" target (no flash algorithm, silently
+# no-ops) nor the official GigaDevice CMSIS-Pack FLM (HardFaults through
+# pyOCD on this setup) can program this chip. Direct AP writes to the flash
+# array don't work either (only CPU-issued writes reach the flash macro).
+# So fmc_prog.c is a tiny routine loaded into RAM that the target CPU itself
+# executes to unlock/erase/program flash - see openocd_flash.cfg.
+fmc_prog.bin: fmc_prog.c
+	arm-none-eabi-gcc -mcpu=cortex-m33 -mthumb -mfpu=fpv5-sp-d16 -mfloat-abi=hard -O1 -ffreestanding -fno-builtin -Wall -c fmc_prog.c -o fmc_prog.o
+	arm-none-eabi-ld -Ttext=0x20001000 -e flash_routine -o fmc_prog.elf fmc_prog.o
+	arm-none-eabi-objcopy -O binary fmc_prog.elf fmc_prog.bin
+
+flash: $(BUILD_DIR)/$(TARGET).bin fmc_prog.bin
+	$(eval BKPT_ADDR := 0x$(shell arm-none-eabi-objdump -d fmc_prog.elf | grep -m1 'bkpt' | cut -d: -f1 | tr -d ' '))
+	openocd -f openocd_gd32f527.cfg -c "set BKPT_ADDR $(BKPT_ADDR)" -f openocd_flash.cfg -c shutdown
+
+#######################################
+# dependencies
+#######################################
+-include $(wildcard $(OUT_DIR)/*.d)
+
+#######################################
+# phony targets
+#######################################
+.PHONY: all clean flash
+
+# *** EOF ***

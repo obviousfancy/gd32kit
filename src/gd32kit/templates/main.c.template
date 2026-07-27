@@ -1,0 +1,26 @@
+/**
+ * @file main.c
+ * @brief {{PROJECT_BRIEF}}
+ *
+ * @author obviousfancy
+ * @date {{DATE}}
+ *
+ * @mcu GD32F527
+ * @generator gd32-new
+ */
+
+#include "gd32f527.h"
+#include "systick.h"
+
+/* ─── Defines ──────────────────────────────────────────── */
+// #define MY_PIN GPIO_PIN_0
+
+int main(void)
+{
+    systick_config();
+
+{{INIT_CODE}}
+    while (1) {
+        // TODO: logica principal del proyecto
+    }
+}
